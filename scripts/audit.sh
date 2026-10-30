@@ -32,5 +32,30 @@ default_in="$(sudo ufw status verbose | awk -F'[, ]+' '/^Default:/{print $2}')"
 check "Политика входящего трафика — deny" "deny" "$default_in"
 echo "[3] Учётные записи"
 awk -F: '$3>=1000 && $3<65534 {printf "  %s (uid=%s)\n",$1,$3}' /etc/passwd
+echo "[4] Веб-сервер"
+check "Служба nginx активна" "active" "$(systemctl is-active nginx)"
+if sudo nginx -t >/dev/null 2>&1; then
+  nginx_ok=0
+else
+  nginx_ok=1
+fi
+check "Конфигурация nginx корректна" "0" "$nginx_ok"
+# 30 суток. Для проверки отказа порог можно поднять переменной CERT_MIN_SECONDS.
+cert_seconds="${CERT_MIN_SECONDS:-2592000}"
+if sudo openssl x509 -checkend "$cert_seconds" -noout -in /etc/ssl/certs/devops.crt >/dev/null 2>&1; then
+  cert_ok=yes
+else
+  cert_ok=no
+fi
+check "Сертификат действует ещё минимум заданный срок" "yes" "$cert_ok"
+key_mode="$(sudo stat -c '%a' /etc/ssl/private/devops.key)"
+writable="$(find /var/www/devops-site -perm -o+w -print)"
+if [[ "$key_mode" == "600" && -z "$writable" ]]; then
+  echo "  [OK]   Ключ закрыт (600), файлов с записью для всех нет"
+  ((PASS++))
+else
+  echo "  [FAIL] Ключ закрыт (600), файлов с записью для всех нет (ключ: '$key_mode', запись для всех: '${writable:-нет}')"
+  ((FAIL++))
+fi
 echo "Пройдено: $PASS, не пройдено: $FAIL"
 [[ $FAIL -eq 0 ]] && exit 0 || exit 1

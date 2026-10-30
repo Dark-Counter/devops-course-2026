@@ -167,9 +167,35 @@ sudo ufw status verbose
 | 01-clean-install, 30.10.2026 16:04 | система обновлена, OpenSSH на порту 22, NAT 10.0.2.15, host-only 192.168.56.2, машина выключена | учётки devops, ключа, hardening, файрвола |
 | 02-keys-configured, 30.10.2026 16:20 | учётка devops, вход по ключу, `~/.ssh/config` на хосте | смены порта, запрета пароля и root |
 | 03-ssh-hardened, 30.10.2026 16:26 | `99-hardening.conf`, порт 2222, проброс на гостевой 2222 | файрвола и записи devops.local |
+| 04-nginx-https, 30.10.2026 16:56 | Nginx, сайт devops.local, сертификат только с SAN DNS:devops.local, HTTP 301 на HTTPS | сценария деплоя |
 
 Снимки 02 и 03 снимаются с работающей машины: выключение оборвало бы контрольную сессию задания 2. После заданий 3 и 4 откатываться на снимок 03 нельзя — в нём ещё нет межсетевого экрана и полного имени узла. Текущее состояние машины и есть итог работы.
 
 Полное имя узла после задания 4: `devops-vm.devops.local` (`hostname -f`). Строка в `/etc/hosts` гостя: `127.0.1.1 devops-vm.devops.local devops-vm`.
 
 Повторная проверка: `bash scripts/audit.sh` из этого репозитория. Ненулевой код означает, что эффективная конфигурация разошлась с описанной здесь.
+
+## 8. Веб-сервер
+
+Пакет `nginx` ставится из репозитория Ubuntu (`apt install nginx`), не из сторонней сборки. На этой машине версия 1.24.0. Стандартный сайт отключён: ссылка `/etc/nginx/sites-enabled/default` удалена, файл в `sites-available` сохранён. Рабочая конфигурация — `/etc/nginx/sites-available/devops-site`, включена ссылкой в `sites-enabled`. Имя ресурса `devops.local`. Запрос на порт 80 отвечает `301` на тот же путь по HTTPS. Заголовка HSTS нет.
+
+| Объект | Путь | Владелец | Права |
+| --- | --- | --- | --- |
+| Каталог ресурса | `/var/www/devops-site` | devops:devops | `755` |
+| Файлы ресурса | `index.html`, `404.html` | devops:devops | `644` |
+| Сертификат | `/etc/ssl/certs/devops.crt` | root:root | `644` |
+| Закрытый ключ | `/etc/ssl/private/devops.key` | root:root | `600` |
+
+Ключ в репозиторий не копируется. Сертификат на хосте лежит в `~/devops.crt` и передаётся клиенту через `--cacert`. В поле SAN только `DNS:devops.local`, IP-адреса нет. Срок: с 30.10.2026 по 30.10.2027.
+
+Команда выпуска:
+
+```bash
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout /etc/ssl/private/devops.key \
+  -out /etc/ssl/certs/devops.crt \
+  -subj "/CN=devops.local" \
+  -addext "subjectAltName=DNS:devops.local"
+```
+
+Содержимое каталога доставляется из `site/` сценарием `scripts/deploy.sh`. Он приводит права к `755` для каталогов и `644` для файлов, поэтому ручная запись от `www-data` при следующем деплое стирается.
