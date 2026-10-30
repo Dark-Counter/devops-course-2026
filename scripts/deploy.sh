@@ -60,7 +60,7 @@ if [[ "$DRY" -eq 1 ]]; then
   exit 0
 fi
 
-if ! curl -fsS --noproxy '*' --cacert "$CA_CERT" --connect-timeout 5 -o /dev/null "$SITE_URL"; then
+if ! curl -4 -fsS --noproxy '*' --cacert "$CA_CERT" --connect-timeout 5 -o /dev/null "$SITE_URL"; then
   echo "Ресурс ${SITE_URL} недоступен." >&2
   exit 1
 fi
