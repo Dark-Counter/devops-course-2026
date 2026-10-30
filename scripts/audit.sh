@@ -57,5 +57,27 @@ else
   echo "  [FAIL] Ключ закрыт (600), файлов с записью для всех нет (ключ: '$key_mode', запись для всех: '${writable:-нет}')"
   ((FAIL++))
 fi
+echo "[5] Контейнеризация"
+check "Служба docker активна" "active" "$(systemctl is-active docker)"
+db_health="$(docker inspect -f '{{.State.Health.Status}}' app-db-1 2>/dev/null || echo missing)"
+check "Контейнер базы в состоянии healthy" "healthy" "$db_health"
+# 127.0.0.1 допустим. Любой другой адрес на портах 5000 и 5432 — нет.
+bad_bind="$(ss -tlnH | awk '
+  {
+    local=$4
+    port=local
+    sub(/^.*:/, "", port)
+    host=local
+    sub(/:[^:]*$/, "", host)
+    if ((port=="5000" || port=="5432") && host!="127.0.0.1") print local
+  }')"
+if [[ -z "$bad_bind" ]]; then
+  echo "  [OK]   Порты 5000 и 5432 не опубликованы наружу"
+  ((PASS++))
+else
+  echo "  [FAIL] Порты 5000 и 5432 не опубликованы наружу (получено: '$bad_bind')"
+  ((FAIL++))
+fi
+check "Права файла .env равны 600" "600" "$(stat -c '%a' /home/devops/app/.env)"
 echo "Пройдено: $PASS, не пройдено: $FAIL"
 [[ $FAIL -eq 0 ]] && exit 0 || exit 1
