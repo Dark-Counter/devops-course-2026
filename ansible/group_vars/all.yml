@@ -1,0 +1,6 @@
+---
+app_image: "ghcr.io/dark-counter/devops-ci-app"
+app_tag: "b092921e5bb5859856c9a2f8093f91dd9d5f3f80"
+app_container_name: "devops-ci-app"
+app_host_port: 5000
+app_internal_port: 5000

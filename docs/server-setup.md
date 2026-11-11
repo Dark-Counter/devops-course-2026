@@ -224,3 +224,56 @@ location /app/ {
 ```
 
 Косая черта в конце `proxy_pass` снимает префикс `/app/`: запрос `/app/health` уходит приложению как `/health`. Статический сайт в `/` остаётся. Если контейнер приложения остановлен, Nginx отвечает `502`, а в журнале ошибок строка `connect() failed (111: Connection refused)` к `upstream http://127.0.0.1:5000/`.
+
+## 10. Образ GHCR для автоматического развёртывания
+
+Практическая работа № 10 публикует приложение в GitHub Container Registry. Пакет публичный: `docker pull` проходит без токена. В конфигурацию Ansible записывается полный SHA коммита, не тег `latest`. `latest` переезжает на каждый новый зелёный push в `main`, а SHA остаётся на проверенной сборке.
+
+| Параметр | Значение |
+| --- | --- |
+| Образ | `ghcr.io/dark-counter/devops-ci-app` |
+| Тег | `b092921e5bb5859856c9a2f8093f91dd9d5f3f80` |
+| Digest | `sha256:2171c6a322e103a8304fdbcbad654df428ed728a8c4b785e149d17d087a8b166` |
+| Чтение | пакет Public, токен не нужен |
+| Проверка | `GET /health`, ожидается `{"status":"ok"}` |
+| Пользователь процесса | `app`, uid 999 |
+
+На момент проверки тег `latest` указывал на тот же image ID `2171c6a322e1`. Страница пакета: https://github.com/Dark-Counter/devops-ci-app/pkgs/container/devops-ci-app.
+
+## 11. Ansible
+
+Проект лежит в каталоге `ansible/` репозитория. Управляющий узел — macOS с Ansible. Управляемый узел — `devops-vm`, host-only адрес `192.168.56.2`, порт SSH `22`. Постоянного агента на машине нет.
+
+| Inventory | Учётная запись | Как входит |
+| --- | --- | --- |
+| `inventory/bootstrap.ini` | `student` | один раз по паролю, только первый запуск |
+| `inventory/prod.ini` | `devops` | ключ `~/.ssh/devops_vm`, дальше пароль не нужен |
+
+`ansible.cfg` по умолчанию выбирает `prod.ini`. В нём `force_handlers = True`.
+
+| Роль | За что отвечает |
+| --- | --- |
+| `base` | Ubuntu 24.04, пакеты, официальный Docker, `python3-requests` |
+| `ssh` | пользователь `devops`, ключ, sudo без пароля, запрет парольного входа, UFW |
+| `nginx` | обратный прокси на порту 80 |
+| `app` | образ по SHA, контейнер, проверка `/health` |
+
+Гостевая система `aarch64`, поэтому репозиторий Docker подключается как `arm64`. Образ CI собран как `linux/amd64`, на машине для него стоят `qemu-user-static` и `binfmt-support`.
+
+| Параметр приложения | Значение |
+| --- | --- |
+| Образ | `ghcr.io/dark-counter/devops-ci-app` |
+| SHA | `b092921e5bb5859856c9a2f8093f91dd9d5f3f80` |
+| Контейнер | `devops-ci-app` |
+| Порт на машине | `127.0.0.1:5000` |
+| Проверка | `GET /health`, ожидается `{"status":"ok"}` |
+
+Команды из каталога `ansible/`:
+
+```bash
+ansible-playbook -i inventory/bootstrap.ini site.yml --ask-pass --ask-become-pass
+ansible-playbook site.yml
+ansible-playbook verify.yml
+```
+
+Первая команда — только чистая машина. Вторая приводит её к описанному состоянию и при отсутствии расхождений даёт `changed=0`. Третья ничего не меняет и тоже должна давать `changed=0`. Пароли и закрытый ключ в этот документ не входят.
